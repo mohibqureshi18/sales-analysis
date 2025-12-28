@@ -1,5 +1,12 @@
 # Cafe Sales Analysis & Automated Cleaning Tool
 
+## Project Status: Alpha Version
+**Note:** This project is currently in active development. 
+* **Current Version:** 0.1.0
+* **Upcoming Features:** * Advanced Time-Series Forecasting.
+    * User authentication for data uploads.
+    * PDF Report Generation button.
+
 An end-to-end Data Science project that transforms "dirty" retail data into actionable insights through automated cleaning, exploratory data analysis (EDA), and interactive visualization.
 
 ## Live Dashboard
