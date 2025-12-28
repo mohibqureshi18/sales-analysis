@@ -10,6 +10,7 @@
 An end-to-end Data Science project that transforms "dirty" retail data into actionable insights through automated cleaning, exploratory data analysis (EDA), and interactive visualization.
 
 ## Live Dashboard
+https://cafe-sales-analysis-4h9jte7gb3hejxgtxjapvv.streamlit.app/
 
 ## Project Overview
 This project addresses common data quality issues found in retail datasets (missing values, inconsistent formatting, and manual entry errors). I built a robust pipeline that:
