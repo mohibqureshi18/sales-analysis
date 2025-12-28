@@ -4,9 +4,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-st.set_page_config(page_title="Cafe Sales Dashboard", layout="wide")
+st.set_page_config(page_title="Sales Dashboard", layout="wide")
 
-st.title("☕ Cafe Sales Analysis & Cleaning Tool")
+st.title("Sales Analysis & Cleaning Tool")
 st.write("Upload your 'dirty' sales CSV to automatically clean data and visualize insights.")
 
 # 1. Dynamic File Uploader
@@ -85,4 +85,5 @@ if uploaded_file is not None:
     st.dataframe(filtered_df.head(50))
 
 else:
+
     st.info("Please upload a CSV file to begin.")
