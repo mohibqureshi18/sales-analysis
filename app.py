@@ -8,7 +8,7 @@ import seaborn as sns
 st.set_page_config(page_title="Cafe Sales Analysis", layout="wide")
 sns.set_theme(style="whitegrid")
 
-st.title("☕ Cafe Sales Analysis Dashboard")
+st.title("☕ Cafe Sales Analysis Dashboard ☕")
 st.markdown("This dashboard analyzes a fixed dataset of cafe transactions to identify sales patterns and correlations.")
 
 # --- 2. REQUIREMENT: FIXED DATA LOAD ---
@@ -90,4 +90,5 @@ if not filtered_df.empty:
     st.pyplot(fig3)
 
 else:
+
     st.error("Please select at least one Month and one Weekday in the sidebar to view charts.")
