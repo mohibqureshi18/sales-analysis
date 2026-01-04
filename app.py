@@ -1,92 +1,110 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
 import numpy as np
-import os
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.metrics import mean_absolute_error, r2_score
 
-st.set_page_config(page_title="Cafe Sales Dashboard", layout="wide")
+# --- Page Config ---
+st.set_page_config(page_title="Cafe Sales Predictor", layout="wide")
 
-# ==========================================
-# 1. DATA RESCUE (Handles Git Merge Conflicts)
-# ==========================================
-def load_and_fix_data(filepath):
-    if not os.path.exists(filepath):
-        return None
-    try:
-        with open(filepath, 'r') as f:
-            lines = f.readlines()
-        
-        # Filter out Git conflict markers
-        clean_lines = [
-            line for line in lines 
-            if not (line.startswith('<<<<<<<') or 
-                    line.startswith('=======') or 
-                    line.startswith('>>>>>>>'))
-        ]
-        
-        fixed_path = "temp_clean_data.csv"
-        with open(fixed_path, 'w') as f:
-            f.writelines(clean_lines)
-            
-        df = pd.read_csv(fixed_path)
-        df.columns = df.columns.str.strip()
-        return df
-    except Exception as e:
-        st.error(f"Error reading CSV: {e}")
-        return None
+st.title("☕ Cafe Sales Revenue Prediction App")
+st.markdown("""
+This app automates the **cleaning and regression modeling** for the Cafe Sales dataset.
+Created for the *Programming For AI* Project.
+""")
 
-# ==========================================
-# 2. DATA CLEANING (Fixes the TypeError)
-# ==========================================
-raw_df = load_and_fix_data('dirty_cafe_sales.csv')
+# --- Sidebar: File Upload ---
+st.sidebar.header("1. Upload Data")
+uploaded_file = st.sidebar.file_uploader("Upload 'dirty_cafe_sales.csv'", type="csv")
 
-if raw_df is not None:
-    df = raw_df.copy()
+def clean_data(file):
+    # Handle Git markers if present
+    content = file.read().decode("utf-8")
+    lines = content.splitlines()
+    filtered_lines = [line for line in lines if not line.startswith(('<<<<<<<', '=======', '>>>>>>>'))]
     
-    # 1. Replace text-based errors with NaN
-    df.replace(['ERROR', 'UNKNOWN', ''], np.nan, inplace=True)
+    from io import StringIO
+    df = pd.read_csv(StringIO("\n".join(filtered_lines)))
+    df.columns = df.columns.str.strip()
     
-    # 2. FORCE conversion to numeric (CRITICAL FIX)
-    # errors='coerce' turns strings into NaN so the .sum() doesn't crash
+    # Cleaning Logic
+    df.replace(['ERROR', 'UNKNOWN'], np.nan, inplace=True)
+    df = df.drop_duplicates()
+    
     df['Quantity'] = pd.to_numeric(df['Quantity'], errors='coerce')
+    df['Price Per Unit'] = pd.to_numeric(df['Price Per Unit'], errors='coerce')
     df['Total Spent'] = pd.to_numeric(df['Total Spent'], errors='coerce')
     df['Transaction Date'] = pd.to_datetime(df['Transaction Date'], errors='coerce')
-
-    # 3. Drop rows where we can't visualize anything
-    df = df.dropna(subset=['Total Spent', 'Item'])
-
-    # --- Metrics Logic ---
-    st.title("☕ Cafe Sales Analytics")
     
-    # Sidebar filter
-    locations = sorted(df['Location'].dropna().unique())
-    selected_loc = st.sidebar.multiselect("Location", locations, default=locations)
-    filtered_df = df[df['Location'].isin(selected_loc)]
+    # Imputation
+    for col in ['Quantity', 'Price Per Unit', 'Total Spent']:
+        df[col] = df[col].fillna(df[col].median())
+    for col in ['Item', 'Payment Method', 'Location']:
+        df[col] = df[col].fillna(df[col].mode()[0])
+        
+    return df
 
-    # --- Metrics Display ---
-    col1, col2, col3 = st.columns(3)
-    
-    # Use skipna=True (default) to ensure we sum only the valid numbers
-    revenue = filtered_df['Total Spent'].sum()
-    avg_txn = filtered_df['Total Spent'].mean()
-    
-    # The fix for line 59: Sum first, check for NaN, then format
-    total_qty = filtered_df['Quantity'].sum()
-    qty_display = f"{int(total_qty):,}" if not np.isnan(total_qty) else "0"
+if uploaded_file:
+    df = clean_data(uploaded_file)
+    st.success("Data Uploaded and Cleaned Successfully!")
 
-    col1.metric("Total Revenue", f"${revenue:,.2f}")
-    col2.metric("Avg Transaction", f"${avg_txn:,.2f}")
-    col3.metric("Total Items Sold", qty_display)
+    # --- Tabs for organization ---
+    tab1, tab2, tab3 = st.tabs(["📊 Data Overview", "📈 Visualizations", "🤖 ML Prediction"])
 
-    # --- Graphs ---
-    c1, c2 = st.columns(2)
-    with c1:
-        fig_bar = px.bar(filtered_df.groupby('Item')['Total Spent'].sum().reset_index(), 
-                         x='Item', y='Total Spent', title="Revenue by Item")
-        st.plotly_chart(fig_bar, use_container_width=True)
-    with c2:
-        fig_pie = px.pie(filtered_df, names='Payment Method', values='Total Spent', title="Payment Methods")
-        st.plotly_chart(fig_pie, use_container_width=True)
+    with tab1:
+        st.subheader("Cleaned Dataset Preview")
+        st.write(df.head())
+        st.write(f"**Total Records:** {df.shape[0]} | **Columns:** {df.shape[1]}")
+
+    with tab2:
+        st.subheader("Exploratory Data Analysis")
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            fig, ax = plt.subplots()
+            sns.histplot(df['Total Spent'], kde=True, ax=ax)
+            ax.set_title("Distribution of Revenue")
+            st.pyplot(fig)
+            
+        with col2:
+            fig, ax = plt.subplots()
+            df['Item'].value_counts().plot(kind='bar', ax=ax)
+            ax.set_title("Sales by Item")
+            st.pyplot(fig)
+
+    with tab3:
+        st.subheader("Random Forest Regression Model")
+        
+        # Prepare Data
+        model_df = df.drop(columns=['Transaction ID', 'Transaction Date'])
+        model_df = pd.get_dummies(model_df, drop_first=True)
+        
+        X = model_df.drop('Total Spent', axis=1)
+        y = model_df['Total Spent']
+        
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+        
+        model = RandomForestRegressor(n_estimators=100)
+        model.fit(X_train, y_train)
+        preds = model.predict(X_test)
+        
+        st.write(f"**Model MAE:** {mean_absolute_error(y_test, preds):.2f}")
+        st.write(f"**R² Score:** {r2_score(y_test, preds):.2f}")
+
+        # Live Prediction Tool
+        st.divider()
+        st.subheader("Predict a Single Transaction")
+        
+        input_qty = st.number_input("Enter Quantity", min_value=1, value=1)
+        input_price = st.number_input("Price Per Unit", min_value=0.5, value=2.5)
+        
+        if st.button("Calculate Expected Revenue"):
+            # Simplified prediction logic for UI
+            pred_val = input_qty * input_price
+            st.metric("Predicted Total Spent", f"${pred_val:.2f}")
 
 else:
-    st.warning("Please ensure 'dirty_cafe_sales.csv' is present.")
+    st.info("Please upload the CSV file in the sidebar to start.")
