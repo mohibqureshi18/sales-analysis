@@ -1,110 +1,147 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
+import plotly.express as px
+import plotly.graph_objects as go
 from sklearn.model_selection import train_test_split
-from sklearn.ensemble import RandomForestRegressor
+from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_absolute_error, r2_score
+import io
 
-# --- Page Config ---
-st.set_page_config(page_title="Cafe Sales Predictor", layout="wide")
+# --- PAGE CONFIG ---
+st.set_page_config(
+    page_title="Cafe Sales Dashboard", 
+    layout="wide", 
+    initial_sidebar_state="expanded"
+)
 
-st.title("☕ Cafe Sales Revenue Prediction App")
+# --- CUSTOM STYLING (To match the Dark Dashboard look) ---
 st.markdown("""
-This app automates the **cleaning and regression modeling** for the Cafe Sales dataset.
-Created for the *Programming For AI* Project.
-""")
+    <style>
+    [data-testid="stMetric"] {
+        background-color: #fff;
+        padding: 20px;
+        border-radius: 10px;
+        border: 1px solid #31333f;
+    }
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 24px;
+    }
+    .stTabs [data-baseweb="tab"] {
+        height: 50px;
+        white-space: pre-wrap;
+        font-weight: bold;
+    }
+    </style>
+""", unsafe_allow_html=True)
 
-# --- Sidebar: File Upload ---
-st.sidebar.header("1. Upload Data")
-uploaded_file = st.sidebar.file_uploader("Upload 'dirty_cafe_sales.csv'", type="csv")
-
-def clean_data(file):
-    # Handle Git markers if present
-    content = file.read().decode("utf-8")
-    lines = content.splitlines()
+# --- DATA CLEANING FUNCTION ---
+@st.cache_data
+def load_and_clean_data(file_path):
+    # Handle Git Conflict Markers often found in 'dirty' files
+    with open(file_path, 'r') as f:
+        lines = f.readlines()
     filtered_lines = [line for line in lines if not line.startswith(('<<<<<<<', '=======', '>>>>>>>'))]
+    df = pd.read_csv(io.StringIO("".join(filtered_lines)))
     
-    from io import StringIO
-    df = pd.read_csv(StringIO("\n".join(filtered_lines)))
+    # Clean Column Names
     df.columns = df.columns.str.strip()
     
-    # Cleaning Logic
+    # Standardize 'Dirty' values
     df.replace(['ERROR', 'UNKNOWN'], np.nan, inplace=True)
-    df = df.drop_duplicates()
     
+    # Type Conversion
     df['Quantity'] = pd.to_numeric(df['Quantity'], errors='coerce')
     df['Price Per Unit'] = pd.to_numeric(df['Price Per Unit'], errors='coerce')
     df['Total Spent'] = pd.to_numeric(df['Total Spent'], errors='coerce')
     df['Transaction Date'] = pd.to_datetime(df['Transaction Date'], errors='coerce')
     
-    # Imputation
-    for col in ['Quantity', 'Price Per Unit', 'Total Spent']:
-        df[col] = df[col].fillna(df[col].median())
-    for col in ['Item', 'Payment Method', 'Location']:
-        df[col] = df[col].fillna(df[col].mode()[0])
-        
+    # Imputation (Filling missing values)
+    df['Quantity'] = df['Quantity'].fillna(df['Quantity'].median())
+    df['Price Per Unit'] = df['Price Per Unit'].fillna(df['Price Per Unit'].median())
+    df['Total Spent'] = df['Total Spent'].fillna(df['Total Spent'].median())
+    df['Item'] = df['Item'].fillna(df['Item'].mode()[0])
+    df['Location'] = df['Location'].fillna(df['Location'].mode()[0])
+    
     return df
 
-if uploaded_file:
-    df = clean_data(uploaded_file)
-    st.success("Data Uploaded and Cleaned Successfully!")
+# Load Data
+try:
+    df_raw = load_and_clean_data('dirty_cafe_sales.csv')
+except Exception as e:
+    st.error(f"Error loading CSV: {e}")
+    st.stop()
 
-    # --- Tabs for organization ---
-    tab1, tab2, tab3 = st.tabs(["📊 Data Overview", "📈 Visualizations", "🤖 ML Prediction"])
+# --- SIDEBAR FILTERS ---
+st.sidebar.title("☕ Cafe Sales")
+st.sidebar.subheader("Navigate")
+view = st.sidebar.radio("Choose view", ["Overview", "Visual Explorer", "Regression Model", "Data Table"])
 
+st.sidebar.subheader("Filters")
+selected_items = st.sidebar.multiselect("Item", options=df_raw['Item'].unique(), default=df_raw['Item'].unique())
+selected_locs = st.sidebar.multiselect("Location", options=df_raw['Location'].unique(), default=df_raw['Location'].unique())
+
+# Apply Filters
+df = df_raw[(df_raw['Item'].isin(selected_items)) & (df_raw['Location'].isin(selected_locs))]
+
+# --- HEADER & KPI CARDS ---
+st.title("📊 Cafe Sales EDA Dashboard")
+st.caption("Interactive analysis • regression model • cleaning pipeline")
+
+kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns(5)
+kpi1.metric("Rows", f"{len(df)}")
+kpi2.metric("Total Revenue", f"${df['Total Spent'].sum():,.0f}")
+kpi3.metric("Avg Spent", f"${df['Total Spent'].mean():.2f}")
+kpi4.metric("Median Price", f"${df['Price Per Unit'].median():.2f}")
+kpi5.metric("Item Count", f"{df['Item'].nunique()}")
+
+st.divider()
+
+# --- MAIN VIEWS ---
+if view == "Overview":
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        daily_sales = df.groupby(df['Transaction Date'].dt.date)['Total Spent'].sum().reset_index()
+        fig = px.line(daily_sales, x='Transaction Date', y='Total Spent', title="Revenue over Time", template="plotly_dark")
+        st.plotly_chart(fig, use_container_width=True)
+    with col2:
+        fig = px.pie(df, names='Item', values='Total Spent', title="Revenue by Item", hole=0.4, template="plotly_dark")
+        st.plotly_chart(fig, use_container_width=True)
+
+elif view == "Visual Explorer":
+    tab1, tab2 = st.tabs(["Distributions", "Relationships"])
     with tab1:
-        st.subheader("Cleaned Dataset Preview")
-        st.write(df.head())
-        st.write(f"**Total Records:** {df.shape[0]} | **Columns:** {df.shape[1]}")
-
+        fig = px.histogram(df, x="Total Spent", color="Item", marginal="box", title="Spending Distribution by Item", template="plotly_dark")
+        st.plotly_chart(fig, use_container_width=True)
     with tab2:
-        st.subheader("Exploratory Data Analysis")
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            fig, ax = plt.subplots()
-            sns.histplot(df['Total Spent'], kde=True, ax=ax)
-            ax.set_title("Distribution of Revenue")
-            st.pyplot(fig)
-            
-        with col2:
-            fig, ax = plt.subplots()
-            df['Item'].value_counts().plot(kind='bar', ax=ax)
-            ax.set_title("Sales by Item")
-            st.pyplot(fig)
+        fig = px.scatter(df, x="Quantity", y="Total Spent", color="Item", size="Price Per Unit", hover_data=['Location'], title="Quantity vs Total Spent", template="plotly_dark")
+        st.plotly_chart(fig, use_container_width=True)
 
-    with tab3:
-        st.subheader("Random Forest Regression Model")
-        
-        # Prepare Data
-        model_df = df.drop(columns=['Transaction ID', 'Transaction Date'])
-        model_df = pd.get_dummies(model_df, drop_first=True)
-        
-        X = model_df.drop('Total Spent', axis=1)
-        y = model_df['Total Spent']
-        
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-        
-        model = RandomForestRegressor(n_estimators=100)
-        model.fit(X_train, y_train)
-        preds = model.predict(X_test)
-        
-        st.write(f"**Model MAE:** {mean_absolute_error(y_test, preds):.2f}")
-        st.write(f"**R² Score:** {r2_score(y_test, preds):.2f}")
+elif view == "Regression Model":
+    st.subheader("Linear Regression: Predicting Total Spent")
+    
+    # ML Pre-processing
+    ml_df = df.dropna(subset=['Total Spent', 'Quantity', 'Price Per Unit'])
+    X = ml_df[['Quantity', 'Price Per Unit']]
+    y = ml_df['Total Spent']
+    
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+    
+    model = LinearRegression()
+    model.fit(X_train, y_train)
+    predictions = model.predict(X_test)
+    
+    # Metrics
+    m1, m2 = st.columns(2)
+    m1.metric("R² Score", f"{r2_score(y_test, predictions):.4f}")
+    m2.metric("Mean Absolute Error", f"${mean_absolute_error(y_test, predictions):.2f}")
+    
+    # Plot
+    res_df = pd.DataFrame({'Actual': y_test, 'Predicted': predictions})
+    # fig = px.scatter(res_df, x='Actual', y='Predicted', trendline="ols", title="Actual vs. Predicted", template="plotly_dark")
+    fig = px.scatter(res_df, x='Actual', y='Predicted', title="Actual vs. Predicted", template="plotly_dark")
+    st.plotly_chart(fig, use_container_width=True)
 
-        # Live Prediction Tool
-        st.divider()
-        st.subheader("Predict a Single Transaction")
-        
-        input_qty = st.number_input("Enter Quantity", min_value=1, value=1)
-        input_price = st.number_input("Price Per Unit", min_value=0.5, value=2.5)
-        
-        if st.button("Calculate Expected Revenue"):
-            # Simplified prediction logic for UI
-            pred_val = input_qty * input_price
-            st.metric("Predicted Total Spent", f"${pred_val:.2f}")
-
-else:
-    st.info("Please upload the CSV file in the sidebar to start.")
+elif view == "Data Table":
+    st.subheader("Raw Cleaned Data")
+    st.dataframe(df, use_container_width=True)
