@@ -1,64 +1,87 @@
 import streamlit as st
 import pandas as pd
-import seaborn as sns
-import matplotlib.pyplot as plt
+import plotly.express as px
+import plotly.graph_objects as go
+from utils import clean_cafe_data, get_ml_forecast
 
-from utils import clean_cafe_data, get_performance_metrics
+# Professional Configuration
+st.set_page_config(page_title="Cafe Intelligence Pro", layout="wide", page_icon="☕")
 
-st.set_page_config(page_title="Cafe Pro Analytics", layout="wide", page_icon="☕")
+# Custom CSS for a clean, modern UI
+st.markdown("""
+    <style>
+    .stMetric { background-color: #ffffff; padding: 15px; border-radius: 10px; border: 1px solid #e0e0e0; }
+    .main { background-color: #f8f9fa; }
+    </style>
+""", unsafe_allow_html=True)
 
-# Custom CSS for professional look
-st.markdown("""<style> .main { background-color: #f5f5f5; } </style>""", unsafe_allow_html=True)
+st.title("☕ Cafe Operations & Analytics Command Center")
+st.sidebar.header("Data Hub")
 
-st.title("☕ Cafe Sales Intelligence Suite")
-st.sidebar.header("Data Management")
-
-uploaded_file = st.sidebar.file_uploader("Upload Sales CSV", type="csv")
+uploaded_file = st.sidebar.file_uploader("Upload Daily Sales (CSV)", type="csv")
 
 if uploaded_file:
-    # Load and Clean
+    # Processing
     raw_df = pd.read_csv(uploaded_file)
     df = clean_cafe_data(raw_df)
-    metrics = get_performance_metrics(df)
+    
+    # Global Sidebar Filters
+    locations = st.sidebar.multiselect("Filter by Location", options=df['Location'].unique(), default=df['Location'].unique())
+    df_filtered = df[df['Location'].isin(locations)]
 
-    # Top Level Metrics
+    # 1. Executive Summary Metrics
     m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Revenue", f"${metrics['total_revenue']:,.2f}")
-    m2.metric("Avg Order", f"${metrics['avg_ticket']:,.2f}")
-    m3.metric("Items Sold", int(metrics['total_items']))
-    m4.metric("Best Seller", metrics['top_item'])
+    with m1: st.metric("Gross Revenue", f"${df_filtered['Total Spent'].sum():,.2f}")
+    with m2: st.metric("Avg Order Value", f"${df_filtered['Total Spent'].mean():,.2f}")
+    with m3: st.metric("Volume", f"{int(df_filtered['Quantity'].sum())} items")
+    with m4: st.metric("Active Locations", len(locations))
 
-    # Single Space Navigation Hub
-    tab1, tab2, tab3 = st.tabs(["📊 Sales Overview", "📍 Location Analysis", "🧹 Data Health"])
+    # 2. THE INTERACTIVE WORKSPACE (Navigable Tabs)
+    tab_sales, tab_geo, tab_health, tab_predict = st.tabs([
+        "📈 Sales Performance", "📍 Location Intelligence", "🔍 Data Audit", "🔮 Forecast (ML)"
+    ])
 
-    with tab1:
-        st.subheader("Sales Performance Analysis")
-        fig, ax = plt.subplots(figsize=(10, 4))
-        # Logic from your notebook: Month-based analysis 
-        df['Month'] = df['Transaction Date'].dt.strftime('%b')
-        sns.lineplot(data=df.groupby('Month')['Total Spent'].sum().reset_index(), 
-                     x='Month', y='Total Spent', marker='o', ax=ax)
-        st.pyplot(fig)
-
-    with tab2:
-        st.subheader("Regional Performance")
-        col_left, col_right = st.columns(2)
+    with tab_sales:
+        st.subheader("Revenue Trends & Distributions")
+        col_left, col_right = st.columns([2, 1])
+        
         with col_left:
-            # Bar chart by location 
-            st.bar_chart(df.groupby('Location')['Total Spent'].sum())
+            # Time Series with Plotly
+            df_time = df_filtered.groupby('Transaction Date')['Total Spent'].sum().reset_index()
+            fig_time = px.line(df_time, x='Transaction Date', y='Total Spent', title="Daily Revenue Stream")
+            st.plotly_chart(fig_time, use_container_width=True)
+            
         with col_right:
-            # Payment method breakdown
-            st.write("Payment Distribution")
-            fig2, ax2 = plt.subplots()
-            df['Payment Method'].value_counts().plot.pie(autopct='%1.1f%%', ax=ax2)
-            st.pyplot(fig2)
+            # Item popularity
+            fig_bar = px.bar(df_filtered.groupby('Item')['Quantity'].sum().reset_index(), 
+                             x='Quantity', y='Item', orientation='h', title="Top Selling Items")
+            st.plotly_chart(fig_bar, use_container_width=True)
 
-    with tab3:
-        st.subheader("Cleaning Audit Trail")
-        st.write("Rows with corrected values:")
-        # Show logic derived from your notebook cleaning steps 
-        st.dataframe(df.head(10))
-        st.download_button("Export Cleaned Data", df.to_csv(index=False), "cleaned_sales.csv")
+    with tab_geo:
+        st.subheader("Regional Breakdown")
+        col_a, col_b = st.columns(2)
+        with col_a:
+            fig_pie = px.pie(df_filtered, names='Location', values='Total Spent', hole=0.5, title="Revenue by Channel")
+            st.plotly_chart(fig_pie, use_container_width=True)
+        with col_b:
+            fig_box = px.box(df_filtered, x='Location', y='Total Spent', color='Location', title="Ticket Size Variance")
+            st.plotly_chart(fig_box, use_container_width=True)
 
+    with tab_health:
+        st.subheader("Data Cleaning Transparency")
+        st.info(f"System automatically repaired {df['Total Spent'].isna().sum()} invalid entries.")
+        st.dataframe(df_filtered, use_container_width=True)
+        st.download_button("Export Enterprise Data", df_filtered.to_csv(index=False), "cleaned_sales.csv")
+
+    with tab_predict:
+        st.subheader("Random Forest Insights")
+        st.write("Current model analyzing relationship between Quantity, Price, and Revenue.")
+        model = get_ml_forecast(df)
+        if model:
+            q_input = st.slider("Simulate Quantity Sold", 1, 10, 5)
+            p_input = st.number_input("Unit Price ($)", value=5.0)
+            pred = model.predict([[q_input, p_input]])
+            st.success(f"Predicted Transaction Value: **${pred[0]:.2f}**")
+            
 else:
-    st.info("Please upload a CSV file in the sidebar to begin analysis.")
+    st.info("👋 Welcome! Please upload your sales data to the sidebar to populate the command center.")
